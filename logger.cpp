@@ -33,7 +33,6 @@ logger::logger() {
     memset(m_szLogPath,0, sizeof(m_szLogPath));
     m_fp = NULL;
     m_iLogMaxSize = DEFAULT_LOG_SIZE;
-    m_iMaxLogNum = DEFAULT_LOG_MAX_NUM;
     m_isInitSuccess = false;
 }
 
@@ -90,7 +89,7 @@ int logger::createLogDir(const char *szPathName, int iMode) {
                 if ( ( ENOTDIR == errno ) || ( ENOENT == errno ) ){
                     if(0 != mkdir(szCurrentPath,0755)){
                         fprintf(stderr,"mkdir %s failed,errmsg:%s\n",szCurrentPath,strerror(errno));
-                        return ERROR_LOG_MKDIR;
+                        return ERROR_PATH_CREATE_FAILURE;
                     }
                 }
             }
@@ -118,7 +117,7 @@ int logger::createLogFile(const char *szFileName, int iMode) {
     return 0;
 }
 
-int logger::backupLogFiles()
+int logger::checkLogFileSize()
 {
     struct stat stStat;
 
@@ -129,36 +128,33 @@ int logger::backupLogFiles()
 
     if (stStat.st_size < m_iLogMaxSize) return 0;
 
-    return doBackupLogFiles(m_iMaxLogNum, m_szLogFileName);
+    return backupLogFiles(m_szLogFileName);
 }
 
-int logger::doBackupLogFiles(int iMaxLogNum, const char *szLogFileName)
+int logger::backupLogFiles(const char *szLogFileName)
 {
-    char szOldLogFileName[MAX_FILE_PATH_LEN];
-    char szNewLogFileName[MAX_FILE_PATH_LEN];
+    char szNewLogFileName[MAX_FILE_PATH_LEN] = {0};
     int i;
 
-    if (NULL == szLogFileName) return ERROR_INPUT_PARAM_NULL;
+    //只是判断日志文件的名字是否为NULL，不判断是否存在，一般来说事存在的
+    if (NULL == szLogFileName){
+        fprintf(stderr,"%s param invalid",__func__);
+        return ERROR_INPUT_PARAM_NULL;
+    }
 
-    for (i = iMaxLogNum - 2; i >= 0; i--)
-    {
-        if (0 == i)
-        {
-            snprintf(szOldLogFileName, sizeof(szOldLogFileName), "%s", szLogFileName);
-        }
-        else
-        {
-            snprintf(szOldLogFileName, sizeof(szOldLogFileName), "%s__bak%d", szLogFileName, i);
-        }
+    //获取日期
+    struct tm* pLogTime;
+    struct timeval pstLogTv;
 
-        if (access(szOldLogFileName, F_OK) == 0)
-        {
-            snprintf(szNewLogFileName, sizeof(szNewLogFileName), "%s__bak%d", szLogFileName, i + 1);
-            if (rename(szOldLogFileName, szNewLogFileName) < 0)
-            {
-                return ERROR_FILE_RENAME_FAILURE;
-            }
-        }
+    gettimeofday(&pstLogTv,NULL);
+    pLogTime = localtime(&(pstLogTv.tv_sec));
+
+    snprintf(szNewLogFileName, sizeof(szNewLogFileName),"%s_%04d%02d%02d_bak",
+            szLogFileName,pLogTime->tm_year + 1900,pLogTime->tm_mon + 1,pLogTime->tm_mday);
+
+    if (rename(szLogFileName, szNewLogFileName) < 0) {
+        fprintf(stderr,"rename(%s,%s) failed",szLogFileName,szNewLogFileName);
+        return ERROR_FILE_RENAME_FAILURE;
     }
 
     return 0;
@@ -180,7 +176,7 @@ const char* logger::getLogLevelName(int nLevel)
     return "N/A";
 }
 
-int logger::logger_init(const char* szLogPath,const char* szBaseFileName,uint iMaxLogSize,uint iMaxLogNum)
+int logger::loggerInit(const char* szLogPath,const char* szBaseFileName,uint iMaxLogSize)
 {
     if ( NULL == szLogPath || NULL == szBaseFileName){
         fprintf(stderr,"[%s] param invalid",__func__);
@@ -188,13 +184,11 @@ int logger::logger_init(const char* szLogPath,const char* szBaseFileName,uint iM
     }
 
     if (iMaxLogSize <= 0) iMaxLogSize = DEFAULT_LOG_SIZE;
-    if (iMaxLogNum <= 0) iMaxLogNum = DEFAULT_LOG_MAX_NUM;
 
     strncpy(m_szLogPath, szLogPath, sizeof(m_szLogPath));
     strncpy(m_szLogBaseName, szBaseFileName,sizeof(m_szLogBaseName));
     snprintf(m_szLogFileName, sizeof(m_szLogFileName), "%s/%s.log", szLogPath, szBaseFileName);
-
-    m_iMaxLogNum = iMaxLogNum;
+    
     m_iLogMaxSize = iMaxLogSize;
 
     /* 初始化日志路径 */
@@ -210,8 +204,8 @@ int logger::logger_init(const char* szLogPath,const char* szBaseFileName,uint iM
         return ERROR_PATH_CREATE_FAILURE;
     }
 
-    /* 备份一下旧的日志 */
-    ret = backupLogFiles();
+    /* 判断是否需要备份一下旧的日志 */
+    ret = checkLogFileSize();
     if(ret != 0){
         fprintf(stderr,"backup log files failed,ret = %d,errmsg :%s\n",ret,strerror(errno));
         return ERROR_LOG_FILE_BACKUP_FAILURE;
@@ -228,7 +222,7 @@ int logger::logger_init(const char* szLogPath,const char* szBaseFileName,uint iM
     return 0;
 }
 
-int logger::logger_info(uint iLogLevel, const char* szFormat, ...)
+int logger::loggerInfo(uint iLogLevel, const char* szFormat, ...)
 {
     struct timeval stLogTv;
     va_list ap;
@@ -246,14 +240,14 @@ int logger::logger_info(uint iLogLevel, const char* szFormat, ...)
     m_lock.lock();
     va_start(ap, szFormat);
     gettimeofday(&stLogTv, NULL);
-    logger_write(iLogLevel, &stLogTv, szFormat, ap);
+    loggerWrite(iLogLevel, &stLogTv, szFormat, ap);
     va_end(ap);
     m_lock.unlock();
 
     return 0;
 }
 
-int logger::logger_write(int iLogLevel, struct timeval* pstLogTv, const char* szFormat, va_list ap)
+int logger::loggerWrite(int iLogLevel, struct timeval* pstLogTv, const char* szFormat, va_list ap)
 {
     struct tm* pLogTime;
     time_t tLogTime;
@@ -276,7 +270,7 @@ int logger::logger_write(int iLogLevel, struct timeval* pstLogTv, const char* sz
     fprintf(m_fp, "\n");
 
     /* 检查日志是否过大，如果过大，备份起来 */
-    backupLogFiles();
+    checkLogFileSize();
 
     return 0;
 }

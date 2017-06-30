@@ -17,18 +17,17 @@ enum LOG_LEVEL{
     LOG_LEVEL_NULL
 };
 
-#define LOG_INIT(szLogPath,szBaseFileName,iMaxLogSize,iMaxLogNum)  \
-(Singleton<logger>::get_instance().logger_init(szLogPath,szBaseFileName,iMaxLogSize, iMaxLogNum))
+#define LOG_INIT(szLogPath,szBaseFileName,iMaxLogSize)  \
+(Singleton<logger>::get_instance().loggerInit(szLogPath,szBaseFileName,iMaxLogSize))
 
-#define LOG_DEBUG(format,args...)   (Singleton<logger>::get_instance().logger_info(LOG_LEVEL_DEBUG, format, ##args))
-#define LOG_INFO(format,args...)    (Singleton<logger>::get_instance().logger_info(LOG_LEVEL_INFO, format, ##args))
-#define LOG_WARNING(format,args...) (Singleton<logger>::get_instance().logger_info(LOG_LEVEL_WARNING, format, ##args))
-#define LOG_ERROR(format,args...)    (Singleton<logger>::get_instance().logger_info(LOG_LEVEL_ERROR, format, ##args))
+#define LOG_DEBUG(format,args...)   (Singleton<logger>::get_instance().loggerInfo(LOG_LEVEL_DEBUG, format, ##args))
+#define LOG_INFO(format,args...)    (Singleton<logger>::get_instance().loggerInfo(LOG_LEVEL_INFO, format, ##args))
+#define LOG_WARNING(format,args...) (Singleton<logger>::get_instance().loggerInfo(LOG_LEVEL_WARNING, format, ##args))
+#define LOG_ERROR(format,args...)    (Singleton<logger>::get_instance().loggerInfo(LOG_LEVEL_ERROR, format, ##args))
 
 const int MAX_FILE_PATH_LEN = 256;
 const int MAX_FILE_NAME_LEN = 64;
 const int DEFAULT_LOG_SIZE  = (10*1024*1024); //10M
-const int DEFAULT_LOG_MAX_NUM = 20;
 
 typedef unsigned int uint;
 
@@ -59,17 +58,16 @@ public:
     * @param szLogPath 日志存放路径
     * @param szBaseFileName 日志文件名
     * @param iMaxLogSize 每个日志文件的最大文件大小，单位：byte
-    * @param iMaxLogNum 最大日志文件累计数量
     * @return 成功返回0，失败返回错误码
     */
-    int logger_init(const char* szLogPath,const char* szBaseFileName,uint iMaxLogSize,uint iMaxLogNum);
+    int loggerInit(const char* szLogPath,const char* szBaseFileName,uint iMaxLogSize);
 
     /**
      * @param iLogLevel 日志级别
      * @param szFormat 格式化串
     * @return 成功返回0，失败返回错误码
     */
-    int logger_info(uint iLogLevel, const char* szFormat, ...);
+    int loggerInfo(uint iLogLevel, const char* szFormat, ...);
 
 private:
     void closeLogFile(FILE* fp);
@@ -81,7 +79,6 @@ private:
     /**
     * 循环嵌套创建路径和对应的日志文件
      * @param szPathName 路径名
-     * @param sz
      * @param iMode  权限
     * @return 成功返回0，失败返回错误码
     */
@@ -96,21 +93,20 @@ private:
      * @param ap 打印参数列表
      * @return 成功返回0，失败返回错误码
     */
-    int logger_write(int iLogLevel, struct timeval* pstLogTv, const char* szFormat, va_list ap);
+    int loggerWrite(int iLogLevel, struct timeval* pstLogTv, const char* szFormat, va_list ap);
 
     /**
-    * 判断日志是否达到最大值，若达到，先备份下
+    * 判断日志是否达到最大值，若达到，执行备份操作
     * @return 成功返回0，失败返回错误码
     */
-    int backupLogFiles();
+    int checkLogFileSize();
 
     /**
     * 实现日志文件之间的切换和备份
-    * @param iMaxLogNum 最大日志文件数量
     * @param szLogFileName 日志文件名
     * @return 成功返回0，失败返回错误码
     */
-    int doBackupLogFiles(int iMaxLogNum, const char *szLogFileName);
+    int backupLogFiles( const char *szLogFileName);
 
 private:
     mutexLock m_lock;                             //同步锁,用于多线程同步写
@@ -119,7 +115,6 @@ private:
     char      m_szLogFileName[MAX_FILE_PATH_LEN];//日志文件全路径，等价于m_szLogPath+m_szBaseName
     FILE*      m_fp;                             //日志文件句柄
     uint       m_iLogMaxSize;                    //设置的日志文件大小
-    uint       m_iMaxLogNum;                     //日志文件总数
     uint       m_isInitSuccess;                 //是否成功初始化
 };
 
